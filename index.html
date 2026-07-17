@@ -1,0 +1,507 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fragments — Puzzle coulissant</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-deep:#0B0C1F;
+    --bg-panel:#141733;
+    --tile-edge:#1C2049;
+    --gold:#D4A24C;
+    --teal:#4FC4B8;
+    --cream:#EFE9DC;
+    --success:#6FCF97;
+    --muted:#8A8FB8;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:'Inter', sans-serif;
+    background:
+      radial-gradient(ellipse at 20% 10%, rgba(79,196,184,0.08), transparent 45%),
+      radial-gradient(ellipse at 85% 80%, rgba(212,162,76,0.10), transparent 50%),
+      var(--bg-deep);
+    color:var(--cream);
+    min-height:100vh;
+  }
+  .font-display{font-family:'Sora', sans-serif;}
+  .font-mono{font-family:'JetBrains Mono', monospace;}
+
+  .bg-stars{
+    background-image:
+      radial-gradient(1px 1px at 10% 20%, rgba(239,233,220,0.5) 50%, transparent 51%),
+      radial-gradient(1px 1px at 80% 15%, rgba(239,233,220,0.4) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 60% 70%, rgba(239,233,220,0.5) 50%, transparent 51%),
+      radial-gradient(1px 1px at 30% 85%, rgba(239,233,220,0.35) 50%, transparent 51%),
+      radial-gradient(1px 1px at 92% 55%, rgba(239,233,220,0.4) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 45% 35%, rgba(239,233,220,0.3) 50%, transparent 51%);
+    background-repeat:repeat;
+    background-size:220px 220px;
+  }
+
+  #board-frame{
+    background:linear-gradient(160deg,#171A3D,#0E1030);
+    border:1px solid rgba(212,162,76,0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 20px 60px rgba(0,0,0,0.4);
+  }
+
+  .tile{
+    position:relative;
+    border-radius:0.5rem;
+    overflow:hidden;
+    cursor:pointer;
+    background-repeat:no-repeat;
+    box-shadow: inset 0 0 0 1px rgba(11,12,31,0.55);
+    transition: transform .16s ease, box-shadow .16s ease;
+  }
+  .tile:hover{ box-shadow: inset 0 0 0 1px rgba(212,162,76,0.5); }
+  .tile.movable::after{
+    content:'';
+    position:absolute; inset:0;
+    background:rgba(212,162,76,0.0);
+    transition: background .15s ease;
+  }
+  .tile.movable:hover::after{ background:rgba(212,162,76,0.08); }
+  .tile-num{
+    position:absolute; top:4px; left:6px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    color:rgba(239,233,220,0.55);
+    background:rgba(11,12,31,0.55);
+    padding:1px 4px;
+    border-radius:3px;
+    pointer-events:none;
+  }
+  .empty-slot{
+    background:repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0 8px, transparent 8px 16px);
+    border-radius:0.5rem;
+  }
+  .tile.solved-flash{ animation:flash .5s ease; }
+  @keyframes flash{
+    0%{ box-shadow: inset 0 0 0 1px rgba(111,207,151,0.9), 0 0 16px rgba(111,207,151,0.5);}
+    100%{ box-shadow: inset 0 0 0 1px rgba(11,12,31,0.55);}
+  }
+
+  .diff-pill{
+    transition:all .2s ease;
+    border:1px solid rgba(239,233,220,0.15);
+  }
+  .diff-pill.active{
+    background:var(--gold);
+    color:#0B0C1F;
+    border-color:var(--gold);
+  }
+  .win-overlay{
+    background:rgba(11,12,31,0.86);
+    backdrop-filter:blur(4px);
+  }
+  ::selection{ background:rgba(212,162,76,0.35); }
+
+  @media (prefers-reduced-motion: reduce){
+    .tile{ transition:none; }
+    .tile.solved-flash{ animation:none; }
+  }
+</style>
+</head>
+<body class="bg-stars">
+
+<div class="max-w-4xl mx-auto px-5 py-8 md:py-12">
+
+  <!-- Header -->
+  <header class="flex flex-col items-center text-center mb-8">
+    <p class="font-mono text-xs tracking-[0.35em] text-[color:var(--teal)] mb-2">JEU DE PUZZLE</p>
+    <h1 class="font-display text-4xl md:text-5xl font-800 tracking-tight">Fragments</h1>
+    <p class="text-[color:var(--muted)] mt-3 max-w-md text-sm md:text-base">
+      Une composition abstraite a été brisée en fragments. Fais glisser les pièces
+      vers la case vide pour la reconstituer, dans le moins de coups possible.
+    </p>
+  </header>
+
+  <!-- Controls -->
+  <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
+    <div class="flex gap-2" id="difficulty-group">
+      <button data-diff="easy" class="diff-pill active px-4 py-1.5 rounded-full text-sm font-medium">Facile · 3×3</button>
+      <button data-diff="medium" class="diff-pill px-4 py-1.5 rounded-full text-sm font-medium">Moyen · 4×4</button>
+      <button data-diff="hard" class="diff-pill px-4 py-1.5 rounded-full text-sm font-medium">Difficile · 5×5</button>
+    </div>
+    <div class="flex gap-2">
+      <button id="new-art-btn" class="px-4 py-1.5 rounded-full text-sm font-medium border border-[color:var(--teal)]/40 text-[color:var(--teal)] hover:bg-[color:var(--teal)]/10 transition">
+        ✧ Nouvelle œuvre
+      </button>
+      <button id="restart-btn" class="px-4 py-1.5 rounded-full text-sm font-medium border border-[color:var(--gold)]/40 text-[color:var(--gold)] hover:bg-[color:var(--gold)]/10 transition">
+        ↺ Mélanger
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="flex justify-center gap-8 md:gap-14 mb-8 font-mono">
+    <div class="text-center">
+      <div class="text-[10px] tracking-widest text-[color:var(--muted)]">TEMPS</div>
+      <div id="stat-time" class="text-xl md:text-2xl font-700 text-[color:var(--cream)]">00:00</div>
+    </div>
+    <div class="text-center">
+      <div class="text-[10px] tracking-widest text-[color:var(--muted)]">COUPS</div>
+      <div id="stat-moves" class="text-xl md:text-2xl font-700 text-[color:var(--cream)]">0</div>
+    </div>
+    <div class="text-center">
+      <div class="text-[10px] tracking-widest text-[color:var(--muted)]">MEILLEUR</div>
+      <div id="stat-best" class="text-xl md:text-2xl font-700 text-[color:var(--teal)]">—</div>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div class="flex justify-center">
+    <div id="board-frame" class="p-2.5 md:p-3 rounded-2xl">
+      <div id="board" class="grid gap-1.5"></div>
+    </div>
+  </div>
+
+  <label class="flex items-center justify-center gap-2 mt-6 text-xs text-[color:var(--muted)] font-mono cursor-pointer select-none">
+    <input type="checkbox" id="preview-toggle" class="accent-[color:var(--gold)]">
+    Aperçu de l'œuvre complète
+  </label>
+  <div id="preview-wrap" class="hidden justify-center mt-4">
+    <canvas id="preview-canvas" class="rounded-xl border border-[color:var(--gold)]/20" width="200" height="200"></canvas>
+  </div>
+</div>
+
+<!-- Win overlay -->
+<div id="win-overlay" class="win-overlay fixed inset-0 hidden items-center justify-center z-50">
+  <div class="bg-[color:var(--bg-panel)] border border-[color:var(--gold)]/30 rounded-2xl px-8 py-9 max-w-sm w-[90%] text-center shadow-2xl">
+    <p class="font-mono text-xs tracking-[0.3em] text-[color:var(--teal)] mb-2">ŒUVRE RECOMPOSÉE</p>
+    <h2 class="font-display text-2xl font-700 mb-4">Bien joué !</h2>
+    <div class="flex justify-center gap-8 mb-6 font-mono">
+      <div>
+        <div class="text-[10px] text-[color:var(--muted)] tracking-widest">TEMPS</div>
+        <div id="win-time" class="text-lg font-700">00:00</div>
+      </div>
+      <div>
+        <div class="text-[10px] text-[color:var(--muted)] tracking-widest">COUPS</div>
+        <div id="win-moves" class="text-lg font-700">0</div>
+      </div>
+    </div>
+    <button id="win-restart" class="px-5 py-2 rounded-full bg-[color:var(--gold)] text-[#0B0C1F] font-semibold text-sm hover:opacity-90 transition">
+      Nouvelle partie
+    </button>
+  </div>
+</div>
+
+<canvas id="art-canvas" width="480" height="480" class="hidden"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  const DIFFICULTIES = { easy: 3, medium: 4, hard: 5 };
+  const ART_SIZE = 480;
+
+  let state = {
+    diff: 'easy',
+    n: 3,
+    tiles: [],       // tiles[position] = original tile index (n*n - 1 = empty)
+    emptyPos: 0,
+    moves: 0,
+    seconds: 0,
+    timerId: null,
+    started: false,
+    won: false,
+    artSeed: 1
+  };
+
+  const bestScores = {}; // in-memory only, per difficulty, this session
+
+  const boardEl = document.getElementById('board');
+  const boardFrame = document.getElementById('board-frame');
+  const statTime = document.getElementById('stat-time');
+  const statMoves = document.getElementById('stat-moves');
+  const statBest = document.getElementById('stat-best');
+  const winOverlay = document.getElementById('win-overlay');
+  const winTime = document.getElementById('win-time');
+  const winMoves = document.getElementById('win-moves');
+  const artCanvas = document.getElementById('art-canvas');
+  const previewCanvas = document.getElementById('preview-canvas');
+  const previewToggle = document.getElementById('preview-toggle');
+  const previewWrap = document.getElementById('preview-wrap');
+
+  // ---- Seeded RNG ----
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Procedurally generate an abstract composition onto the canvas
+  function paintArtwork(seed){
+    const rand = mulberry32(seed);
+    const ctx = artCanvas.getContext('2d');
+    const S = ART_SIZE;
+    ctx.clearRect(0,0,S,S);
+
+    const palettes = [
+      ['#0F1230','#4FC4B8','#D4A24C','#6FCF97','#EFE9DC'],
+      ['#141733','#8A5CF6','#D4A24C','#4FC4B8','#EFE9DC'],
+      ['#0B0C1F','#E8896B','#4FC4B8','#D4A24C','#EFE9DC'],
+      ['#101431','#5CC8E8','#D4A24C','#8A5CF6','#EFE9DC']
+    ];
+    const palette = palettes[Math.floor(rand()*palettes.length)];
+
+    // base gradient
+    const g = ctx.createLinearGradient(0,0,S,S);
+    g.addColorStop(0, palette[0]);
+    g.addColorStop(1, '#0B0C1F');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,S,S);
+
+    // flowing bands
+    for (let i=0;i<5;i++){
+      ctx.beginPath();
+      const y0 = rand()*S;
+      ctx.moveTo(0, y0);
+      ctx.bezierCurveTo(S*0.33, y0 + (rand()-0.5)*220, S*0.66, y0 + (rand()-0.5)*220, S, y0 + (rand()-0.5)*160);
+      ctx.lineTo(S, S); ctx.lineTo(0, S); ctx.closePath();
+      ctx.fillStyle = palette[1 + Math.floor(rand()* (palette.length-1))];
+      ctx.globalAlpha = 0.10 + rand()*0.12;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // scattered circles (constellation-like accents)
+    const circleCount = 16 + Math.floor(rand()*10);
+    for (let i=0;i<circleCount;i++){
+      const x = rand()*S, y = rand()*S, r = 3 + rand()*22;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fillStyle = palette[1 + Math.floor(rand()*(palette.length-1))];
+      ctx.globalAlpha = 0.10 + rand()*0.35;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // fine line accents
+    ctx.strokeStyle = palette[4];
+    ctx.lineWidth = 1;
+    for (let i=0;i<6;i++){
+      ctx.globalAlpha = 0.15 + rand()*0.2;
+      ctx.beginPath();
+      ctx.moveTo(rand()*S, rand()*S);
+      ctx.lineTo(rand()*S, rand()*S);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // subtle vignette
+    const vg = ctx.createRadialGradient(S/2,S/2,S*0.2, S/2,S/2,S*0.75);
+    vg.addColorStop(0,'rgba(0,0,0,0)');
+    vg.addColorStop(1,'rgba(0,0,0,0.35)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0,0,S,S);
+  }
+
+  function updatePreview(){
+    const pctx = previewCanvas.getContext('2d');
+    pctx.clearRect(0,0,200,200);
+    pctx.drawImage(artCanvas, 0,0, ART_SIZE, ART_SIZE, 0,0,200,200);
+  }
+
+  function formatTime(s){
+    const m = Math.floor(s/60).toString().padStart(2,'0');
+    const sec = (s%60).toString().padStart(2,'0');
+    return `${m}:${sec}`;
+  }
+
+  function stopTimer(){ if (state.timerId){ clearInterval(state.timerId); state.timerId = null; } }
+  function startTimer(){
+    stopTimer();
+    state.timerId = setInterval(() => {
+      state.seconds++;
+      statTime.textContent = formatTime(state.seconds);
+    }, 1000);
+  }
+
+  function updateStats(){
+    statMoves.textContent = state.moves;
+    const best = bestScores[state.diff];
+    statBest.textContent = best ? `${formatTime(best.seconds)} · ${best.moves}c` : '—';
+  }
+
+  function boardSizePx(){
+    const vw = Math.min(window.innerWidth - 60, 480);
+    return Math.min(460, vw);
+  }
+
+  function buildSolvedTiles(n){
+    const arr = [];
+    for (let i=0;i<n*n;i++) arr.push(i);
+    return arr; // last index (n*n-1) is empty
+  }
+
+  function isSolvable(tiles, n){
+    const arr = tiles.filter(t => t !== n*n - 1);
+    let inversions = 0;
+    for (let i=0;i<arr.length;i++)
+      for (let j=i+1;j<arr.length;j++)
+        if (arr[i] > arr[j]) inversions++;
+
+    if (n % 2 === 1){
+      return inversions % 2 === 0;
+    } else {
+      const emptyRow = Math.floor(tiles.indexOf(n*n-1) / n); // 0-indexed from top
+      const emptyRowFromBottom = n - emptyRow;
+      if (emptyRowFromBottom % 2 === 0) return inversions % 2 === 1;
+      return inversions % 2 === 0;
+    }
+  }
+
+  function shuffleSolvable(n){
+    let tiles;
+    do {
+      tiles = buildSolvedTiles(n);
+      for (let i = tiles.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i+1));
+        [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+      }
+    } while (!isSolvable(tiles, n) || isSolved(tiles, n));
+    return tiles;
+  }
+
+  function isSolved(tiles, n){
+    for (let i=0;i<tiles.length;i++) if (tiles[i] !== i) return false;
+    return true;
+  }
+
+  function renderBoard(){
+    const n = state.n;
+    const px = boardSizePx();
+    const gap = 6;
+    const tileSize = (px - gap*(n-1)) / n;
+
+    boardEl.style.gridTemplateColumns = `repeat(${n}, ${tileSize}px)`;
+    boardEl.style.gridTemplateRows = `repeat(${n}, ${tileSize}px)`;
+    boardEl.style.gap = `${gap}px`;
+    boardEl.innerHTML = '';
+
+    state.tiles.forEach((origIndex, pos) => {
+      const isEmpty = origIndex === n*n - 1;
+      const el = document.createElement('div');
+      el.dataset.pos = pos;
+
+      if (isEmpty){
+        el.className = 'empty-slot';
+        el.style.width = tileSize + 'px';
+        el.style.height = tileSize + 'px';
+      } else {
+        const col = origIndex % n;
+        const row = Math.floor(origIndex / n);
+        el.className = 'tile';
+        el.style.width = tileSize + 'px';
+        el.style.height = tileSize + 'px';
+        el.style.backgroundImage = `url(${artCanvas.toDataURL()})`;
+        el.style.backgroundSize = `${tileSize * n}px ${tileSize * n}px`;
+        el.style.backgroundPosition = `-${col * tileSize}px -${row * tileSize}px`;
+        el.innerHTML = `<span class="tile-num">${origIndex + 1}</span>`;
+        if (isMovable(pos)) el.classList.add('movable');
+        el.addEventListener('click', () => attemptMove(pos));
+      }
+      boardEl.appendChild(el);
+    });
+  }
+
+  function isMovable(pos){
+    const n = state.n;
+    const emptyPos = state.tiles.indexOf(n*n - 1);
+    const pr = Math.floor(pos/n), pc = pos % n;
+    const er = Math.floor(emptyPos/n), ec = emptyPos % n;
+    return (pr === er && Math.abs(pc-ec) === 1) || (pc === ec && Math.abs(pr-er) === 1);
+  }
+
+  function attemptMove(pos){
+    if (state.won) return;
+    if (!isMovable(pos)) return;
+
+    if (!state.started){ state.started = true; startTimer(); }
+
+    const n = state.n;
+    const emptyPos = state.tiles.indexOf(n*n - 1);
+    [state.tiles[pos], state.tiles[emptyPos]] = [state.tiles[emptyPos], state.tiles[pos]];
+    state.moves++;
+    updateStats();
+    renderBoard();
+
+    if (isSolved(state.tiles, n)){
+      state.won = true;
+      stopTimer();
+      const current = { seconds: state.seconds, moves: state.moves };
+      const best = bestScores[state.diff];
+      if (!best || current.seconds < best.seconds || (current.seconds === best.seconds && current.moves < best.moves)){
+        bestScores[state.diff] = current;
+      }
+      updateStats();
+      document.querySelectorAll('.tile').forEach(t => t.classList.add('solved-flash'));
+      setTimeout(() => {
+        winTime.textContent = formatTime(state.seconds);
+        winMoves.textContent = state.moves;
+        winOverlay.classList.remove('hidden');
+        winOverlay.classList.add('flex');
+      }, 500);
+    }
+  }
+
+  function newGame(diff, newArt){
+    stopTimer();
+    state.diff = diff;
+    state.n = DIFFICULTIES[diff];
+    if (newArt) state.artSeed = Math.floor(Math.random() * 100000);
+    paintArtwork(state.artSeed);
+    updatePreview();
+    state.tiles = shuffleSolvable(state.n);
+    state.moves = 0;
+    state.seconds = 0;
+    state.started = false;
+    state.won = false;
+    statTime.textContent = '00:00';
+    updateStats();
+    renderBoard();
+    winOverlay.classList.add('hidden');
+    winOverlay.classList.remove('flex');
+  }
+
+  // ---- Controls ----
+  document.getElementById('difficulty-group').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-diff]');
+    if (!btn) return;
+    document.querySelectorAll('.diff-pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    newGame(btn.dataset.diff, false);
+  });
+
+  document.getElementById('restart-btn').addEventListener('click', () => newGame(state.diff, false));
+  document.getElementById('new-art-btn').addEventListener('click', () => newGame(state.diff, true));
+  document.getElementById('win-restart').addEventListener('click', () => newGame(state.diff, true));
+
+  previewToggle.addEventListener('change', () => {
+    if (previewToggle.checked){
+      previewWrap.classList.remove('hidden');
+      previewWrap.classList.add('flex');
+      updatePreview();
+    } else {
+      previewWrap.classList.add('hidden');
+      previewWrap.classList.remove('flex');
+    }
+  });
+
+  window.addEventListener('resize', () => renderBoard());
+
+  newGame('easy', true);
+})();
+</script>
+</body>
+</html>
